@@ -94,7 +94,7 @@ function Resolve-WinForgeConfig {
     $catalogUpdate = ConvertTo-Bool (Get-Raw 'CatalogUpdate' 'true') $true
     # Server and LTSC receive their updates from the Microsoft Update Catalog.
     if (($isServer -or $isLtsc) -and $catalogUpdate) { $updates = 'integrate' }
-    $cleanup = (Get-Raw 'Cleanup' 'resetbase').ToLowerInvariant()
+    $cleanup = (Get-Raw 'Cleanup' 'none').ToLowerInvariant()
     if ($cleanup -notin $script:CleanupModes) { throw "Invalid cleanup mode '$cleanup'. Allowed: $($script:CleanupModes -join ', ')." }
     if ($cleanup -ne 'none' -and $updates -ne 'integrate') {
         throw "Cleanup mode '$cleanup' requires updates mode 'integrate' (components are only superseded after updates are installed)."
@@ -144,7 +144,7 @@ function Resolve-WinForgeConfig {
         Editions        = $editions
         Updates         = $updates
         Cleanup         = $cleanup
-        NetFx3          = ConvertTo-Bool (Get-Raw 'NetFx3' 'true') $true
+        NetFx3          = ConvertTo-Bool (Get-Raw 'NetFx3' 'false')
         ImageFormat     = $imageFormat
         SkipWinRE       = ConvertTo-Bool (Get-Raw 'SkipWinRE' 'false')
         SkipEdge        = ConvertTo-Bool (Get-Raw 'SkipEdge' 'false')

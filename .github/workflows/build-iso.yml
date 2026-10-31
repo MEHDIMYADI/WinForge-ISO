@@ -41,12 +41,12 @@ on:
       cleanup:
         description: "Image cleanup: none, cleanup, resetbase (smallest, updates become permanent), resetbase-per-lcu"
         type: choice
-        default: "resetbase"
+        default: "none"
         options: ["none", "cleanup", "resetbase", "resetbase-per-lcu"]
       netfx3:
         description: "Enable .NET Framework 3.5"
         type: boolean
-        default: true
+        default: false
       image_format:
         description: "Install image format: wim (fast), esd (smallest), swm (split for FAT32)"
         type: choice

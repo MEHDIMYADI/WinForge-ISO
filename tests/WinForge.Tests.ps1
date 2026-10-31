@@ -14,7 +14,7 @@ Describe 'Resolve-WinForgeConfig' {
         $c = Resolve-WinForgeConfig -Raw @{}
         $c.Product | Should -Be 'Windows 11'
         $c.Editions | Should -Be @('PROFESSIONAL')
-        $c.Cleanup | Should -Be 'resetbase'
+        $c.Cleanup | Should -Be 'none'
     }
     It 'defaults Server to SERVERSTANDARD' {
         (Resolve-WinForgeConfig -Raw @{ Product = 'Windows Server 2025' }).Editions | Should -Be @('SERVERSTANDARD')
@@ -61,9 +61,9 @@ Describe 'New-ConverterIni' {
         $ini = New-ConverterIni -Config (Resolve-WinForgeConfig -Raw @{})
         $ini | Should -Match '(?m)^AutoStart=1\r?$'
         $ini | Should -Match '(?m)^AddUpdates=1\r?$'
-        $ini | Should -Match '(?m)^Cleanup=1\r?$'
-        $ini | Should -Match '(?m)^ResetBase=1\r?$'
-        $ini | Should -Match '(?m)^NetFx3=1\r?$'
+        $ini | Should -Match '(?m)^Cleanup=0\r?$'
+        $ini | Should -Match '(?m)^ResetBase=0\r?$'
+        $ini | Should -Match '(?m)^NetFx3=0\r?$'
         $ini | Should -Match '(?m)^StartVirtual=0\r?$'
         $ini | Should -Match '(?m)^AppsLevel=0\r?$'
     }
@@ -77,6 +77,11 @@ Describe 'New-ConverterIni' {
         $ini | Should -Match '(?m)^SkipEdge=1\r?$'
         $ini | Should -Match '(?m)^SkipWinRE=1\r?$'
         $ini | Should -Match '(?m)^AddDrivers=1\r?$'
+    }
+    It 'maps resetbase' {
+        $ini = New-ConverterIni -Config (Resolve-WinForgeConfig -Raw @{ Cleanup = 'resetbase' })
+        $ini | Should -Match '(?m)^Cleanup=1\r?$'
+        $ini | Should -Match '(?m)^ResetBase=1\r?$'
     }
     It 'maps swm and no store apps' {
         $ini = New-ConverterIni -Config (Resolve-WinForgeConfig -Raw @{ ImageFormat = 'swm'; StoreApps = 'none' })
@@ -96,6 +101,7 @@ Describe 'New-ConverterIni' {
         $ini | Should -Match '(?m)^wim2esd=0\r?$'
         $ini | Should -Match '(?m)^AutoStart=1\r?$'
     }
+    It 'enables .NET 3.5 when asked' { (New-ConverterIni -Config (Resolve-WinForgeConfig -Raw @{ NetFx3 = 'true' })) | Should -Match '(?m)^NetFx3=1\r?$' }
     It 'uses CRLF line endings' { (New-ConverterIni -Config (Resolve-WinForgeConfig -Raw @{})) | Should -Match "`r`n" }
 }
 
