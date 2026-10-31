@@ -1,0 +1,14 @@
+*.iso
+*.wim
+*.esd
+*.swm
+*.msu
+*.cab
+*.7z
+*.7z.0*
+*.log
+.workspace/
+output/
+downloads/
+mount/
+config.json

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        shell: bash
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -File | ForEach-Object {
+            $t = $null; $e = $null
+            if ($_.Extension -eq '.psd1') { try { Import-PowerShellDataFile $_.FullName | Out-Null } catch { $bad++; Write-Host "::error file=$($_.FullName)::$_" }; return }
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$t, [ref]$e)
+            if ($e) { $bad++; $e | ForEach-Object { Write-Host "::error file=$($_.Extent.File),line=$($_.Extent.StartLineNumber)::$($_.Message)" } }
+          }
+          if ($bad) { exit 1 }
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $r = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
+          $r | Format-Table -AutoSize
+          if ($r) { exit 1 }
+
+      - name: Pester
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser -Force -SkipPublisherCheck
+          Invoke-Pester -Path ./tests -CI -Output Detailed

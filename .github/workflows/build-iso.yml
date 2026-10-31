@@ -1,0 +1,257 @@
+name: Build Windows ISO
+
+run-name: "Build ${{ inputs.product }} ${{ inputs.architecture }} ${{ inputs.language }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: "Product"
+        type: choice
+        default: "Windows 11"
+        options: ["Windows 11", "Windows 10", "Windows Server 2025", "Windows 11 LTSC 2024"]
+      channel:
+        description: "Windows 11 channel (ignored for other products)"
+        type: choice
+        default: "Retail"
+        options: ["Retail", "ReleasePreview", "Beta", "Experimental"]
+      milestone:
+        description: "Windows 11 version (ignored for other products)"
+        type: choice
+        default: "25H2"
+        options: ["24H2", "25H2", "26H1", "26H2", "27H2"]
+      architecture:
+        description: "Architecture (Windows 11: amd64/arm64; Server and LTSC: amd64)"
+        type: choice
+        default: "amd64"
+        options: ["amd64", "arm64", "x86"]
+      language:
+        description: "Language code, e.g. en-us, fa-ir, de-de, zh-cn"
+        type: string
+        default: "en-us"
+      edition:
+        description: "Edition(s), comma separated. Empty = PROFESSIONAL (client) or SERVERSTANDARD. Client: PROFESSIONAL, CORE, PROFESSIONALN, COREN. Server: SERVERSTANDARD, SERVERDATACENTER (+CORE variants)"
+        type: string
+        default: ""
+      updates:
+        description: "Integrate the latest cumulative updates (UUP). Server/LTSC use the Update Catalog instead"
+        type: choice
+        default: "integrate"
+        options: ["integrate", "none", "external"]
+      cleanup:
+        description: "Image cleanup: none, cleanup, resetbase (smallest, updates become permanent), resetbase-per-lcu"
+        type: choice
+        default: "resetbase"
+        options: ["none", "cleanup", "resetbase", "resetbase-per-lcu"]
+      netfx3:
+        description: "Enable .NET Framework 3.5"
+        type: boolean
+        default: true
+      image_format:
+        description: "Install image format: wim (fast), esd (smallest), swm (split for FAT32)"
+        type: choice
+        default: "wim"
+        options: ["wim", "esd", "swm"]
+      skip_winre:
+        description: "Skip Windows Recovery Environment (smaller image)"
+        type: boolean
+        default: false
+      skip_edge:
+        description: "Skip Microsoft Edge"
+        type: boolean
+        default: false
+      update_boot_files:
+        description: "Update boot files (bootmgr, efi) to the latest version"
+        type: boolean
+        default: false
+      store_apps:
+        description: "Store apps preinstalled (Windows 11): all, level1-4 (progressively fewer), none"
+        type: choice
+        default: "all"
+        options: ["all", "level1", "level2", "level3", "level4", "none"]
+      stub_apps_full:
+        description: "Keep full stub Store apps (Windows 11)"
+        type: boolean
+        default: true
+      virtual_editions:
+        description: "Extra editions created from Pro, comma separated: Enterprise, Education, ProfessionalWorkstation, IoTEnterprise (+N variants). Windows 10/11 only"
+        type: string
+        default: ""
+      drivers_url:
+        description: "Optional https URL of a drivers archive (zip/7z) with OS/, WinPE/ and ALL/ folders"
+        type: string
+        default: ""
+      ltsc_base_iso_url:
+        description: "LTSC only: https URL of the base Windows 11 Enterprise LTSC 2024 ISO"
+        type: string
+        default: ""
+      catalog_update:
+        description: "Server/LTSC: add the newest cumulative + .NET update from Microsoft Update Catalog"
+        type: boolean
+        default: true
+      part_size_mb:
+        description: "Size of each release part in MB (max 1990)"
+        type: string
+        default: "1900"
+      archive_mode:
+        description: "7z compression of the ISO parts: store (fast), normal, ultra (very slow)"
+        type: choice
+        default: "store"
+        options: ["store", "normal", "ultra"]
+      publish_release:
+        description: "Publish the parts as a GitHub Release (otherwise keep them as a 3-day workflow artifact)"
+        type: boolean
+        default: true
+      plan_only:
+        description: "Dry run: validate the options and resolve the build only"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-iso-${{ github.ref }}-${{ inputs.product }}-${{ inputs.architecture }}-${{ inputs.language }}
+  cancel-in-progress: false
+
+env:
+  INPUT_PRODUCT: ${{ inputs.product }}
+  INPUT_CHANNEL: ${{ inputs.channel }}
+  INPUT_MILESTONE: ${{ inputs.milestone }}
+  INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+  INPUT_LANGUAGE: ${{ inputs.language }}
+  INPUT_EDITION: ${{ inputs.edition }}
+  INPUT_UPDATES: ${{ inputs.updates }}
+  INPUT_CLEANUP: ${{ inputs.cleanup }}
+  INPUT_NETFX3: ${{ inputs.netfx3 }}
+  INPUT_IMAGE_FORMAT: ${{ inputs.image_format }}
+  INPUT_SKIP_WINRE: ${{ inputs.skip_winre }}
+  INPUT_SKIP_EDGE: ${{ inputs.skip_edge }}
+  INPUT_UPDATE_BOOT_FILES: ${{ inputs.update_boot_files }}
+  INPUT_STORE_APPS: ${{ inputs.store_apps }}
+  INPUT_STUB_APPS_FULL: ${{ inputs.stub_apps_full }}
+  INPUT_VIRTUAL_EDITIONS: ${{ inputs.virtual_editions }}
+  INPUT_DRIVERS_URL: ${{ inputs.drivers_url }}
+  INPUT_LTSC_BASE_ISO_URL: ${{ inputs.ltsc_base_iso_url }}
+  INPUT_CATALOG_UPDATE: ${{ inputs.catalog_update }}
+  INPUT_PART_SIZE_MB: ${{ inputs.part_size_mb }}
+  INPUT_ARCHIVE_MODE: ${{ inputs.archive_mode }}
+  INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
+  INPUT_PLAN_ONLY: ${{ inputs.plan_only }}
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  plan:
+    name: Validate and resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+      plan_only: ${{ steps.plan.outputs.plan_only }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plan build
+        id: plan
+        run: ./scripts/Plan-Build.ps1 -OutputConfig "$env:RUNNER_TEMP/config.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-config
+          path: ${{ runner.temp }}/config.json
+          retention-days: 3
+
+  build:
+    name: Build ISO
+    needs: plan
+    if: needs.plan.outputs.plan_only != 'true'
+    runs-on: windows-2022
+    timeout-minutes: 350
+    permissions:
+      contents: write
+    env:
+      WINFORGE_WORK: D:\winforge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-config
+          path: ${{ runner.temp }}/cfg
+
+      - name: Prepare tools
+        run: ./scripts/Install-Tools.ps1 -ConfigPath "$env:RUNNER_TEMP/cfg/config.json"
+
+      - name: Download UUP files
+        if: ${{ !contains(inputs.product, 'LTSC') }}
+        run: ./scripts/Get-UupSource.ps1 -ConfigPath "$env:RUNNER_TEMP/cfg/config.json"
+
+      - name: Convert to ISO
+        id: convert
+        if: ${{ !contains(inputs.product, 'LTSC') }}
+        run: ./scripts/Invoke-Convert.ps1 -ConfigPath "$env:RUNNER_TEMP/cfg/config.json"
+
+      - name: Download LTSC base ISO
+        id: base
+        if: ${{ contains(inputs.product, 'LTSC') }}
+        run: ./scripts/Get-BaseIso.ps1 -ConfigPath "$env:RUNNER_TEMP/cfg/config.json"
+
+      - name: Service image (Update Catalog, .NET, drivers, cleanup)
+        id: service
+        if: ${{ contains(inputs.product, 'LTSC') || contains(inputs.product, 'Server') }}
+        env:
+          BASE_ISO: ${{ steps.convert.outputs.iso_path || steps.base.outputs.iso_path }}
+        run: ./scripts/Invoke-CatalogServicing.ps1 -ConfigPath "$env:RUNNER_TEMP/cfg/config.json" -BaseIsoPath "$env:BASE_ISO"
+
+      - name: Locate final ISO
+        id: final
+        env:
+          ISO_PATH: ${{ steps.service.outputs.iso_path || steps.convert.outputs.iso_path }}
+        run: |
+          if (-not $env:ISO_PATH -or -not (Test-Path -LiteralPath $env:ISO_PATH)) { throw "Final ISO not found: '$env:ISO_PATH'" }
+          "iso_path=$env:ISO_PATH" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify ISO
+        id: verify
+        run: ./scripts/Test-Iso.ps1 -IsoPath "${{ steps.final.outputs.iso_path }}" -ConfigPath "$env:RUNNER_TEMP/cfg/config.json"
+
+      - name: Checksums and split archive
+        id: pack
+        env:
+          OS_UPDATE: ${{ steps.service.outputs.os_update }}
+          NET_UPDATE: ${{ steps.service.outputs.net_update }}
+          EDITIONS: ${{ steps.verify.outputs.editions }}
+        run: |
+          ./scripts/Publish-Output.ps1 -IsoPath "${{ steps.final.outputs.iso_path }}" -ConfigPath "$env:RUNNER_TEMP/cfg/config.json" `
+            -Editions "$env:EDITIONS" -OsUpdate "$(if ($env:OS_UPDATE) { $env:OS_UPDATE } else { 'n/a' })" -NetUpdate "$(if ($env:NET_UPDATE) { $env:NET_UPDATE } else { 'n/a' })"
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DIR: ${{ steps.pack.outputs.release_dir }}
+          TAG: ${{ needs.plan.outputs.release_tag }}
+        run: |
+          $notes = Join-Path $env:RELEASE_DIR 'release-notes.md'
+          gh release create $env:TAG --repo $env:GITHUB_REPOSITORY --title $env:TAG --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+          $files = Get-ChildItem -LiteralPath $env:RELEASE_DIR -File | Where-Object { $_.Name -ne 'release-notes.md' }
+          foreach ($f in $files) {
+            for ($i = 1; $i -le 3; $i++) {
+              Write-Host "Uploading $($f.Name) (attempt $i)"
+              gh release upload $env:TAG $f.FullName --repo $env:GITHUB_REPOSITORY --clobber
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($i -eq 3) { throw "Upload failed for $($f.Name)" }
+              Start-Sleep -Seconds (15 * $i)
+            }
+          }
+
+      - name: Upload workflow artifact
+        if: ${{ !inputs.publish_release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.plan.outputs.release_tag }}
+          path: ${{ steps.pack.outputs.release_dir }}
+          retention-days: 3
+          compression-level: 0
